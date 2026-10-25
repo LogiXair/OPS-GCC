@@ -11,7 +11,7 @@
 
 const L560 = {
   payloadKg: 300,        // [thesis]
-  rangeKm: 600,          // [thesis]
+  rangeKm: 750,          // [LogiXair, Oct 2026] Gulf configuration; 600 km in the thesis
   mtowKg: 1600,          // [deck] about 1.6 t: registered as an aircraft under GACAR Part 47
   fuelLph: 30,           // [deck] hybrid-electric on common fuels, 30 litres per flight hour
   cruiseKmh: 250,        // [conops]
@@ -144,7 +144,7 @@ const SURFACE = { roadKmh: 31.25, boatKmh: 22.2 };
    Qatar, Kuwait, Oman). The Empty Quarter camps have no road: a desert track at about 25 km/h. Island and offshore legs
    compare with a supply boat. */
 const ROAD_TRAFFIC = 1;
-const ROAD = { 'R-11': [110, 4860], 'R-14': [345, 12600], 'R-17': [330, 12060], 'R-21': [300, 10980], 'R-24': [190, 7200], 'T-10': [410, 14400], 'J-11': [85, 4500], 'J-14': [420, 15300], 'J-17': [170, 8100], 'J-21': [340, 12600], 'J-24': [400, 18000], 'J-31': [120, 4860], 'L-03': [325, 17100], 'L-04': [245, 10200], 'D-11': [95, 3600], 'D-14': [300, 10800], 'D-17': [430, 16200], 'D-21': [70, 6300], 'D-24': [400, 18900], 'D-27': [155, 6120], 'D-31': [400, 18000], 'T-11': [190, 9000], 'T-14': [180, 7200], 'T-17': [290, 11700], 'T-21': [260, 9900], 'U-11': [130, 5400], 'U-14': [140, 6300], 'U-17': [150, 6300], 'U-21': [260, 12600], 'U-24': [450, 18900], 'U-10': [110, 4860], 'A-11': [240, 9000], 'A-14': [150, 6120], 'L-01': [330, 13500], 'L-02': [570, 27000], 'S-17': [75, 3600], 'S-19': [140, 6120], 'E-11': [230, 9720], 'E-13': [220, 9000], 'E-15': [90, 4500], 'E-17': [130, 6120], 'E-21': [260, 36000], 'E-23': [280, 39600] };
+const ROAD = { 'R-11': [110, 4860], 'R-14': [345, 12600], 'R-17': [330, 12060], 'R-21': [300, 10980], 'R-24': [190, 7200], 'T-10': [410, 14400], 'J-11': [85, 4500], 'J-14': [420, 15300], 'J-17': [170, 8100], 'J-21': [340, 12600], 'J-24': [400, 18000], 'J-31': [120, 4860], 'L-03': [300, 16200], 'D-11': [95, 3600], 'D-14': [300, 10800], 'D-17': [430, 16200], 'D-21': [70, 6300], 'D-24': [400, 18900], 'D-27': [155, 6120], 'D-31': [400, 18000], 'T-11': [190, 9000], 'T-14': [180, 7200], 'T-17': [290, 11700], 'T-21': [260, 9900], 'U-11': [130, 5400], 'U-14': [140, 6300], 'U-17': [150, 6300], 'U-21': [260, 12600], 'U-24': [450, 18900], 'U-10': [110, 4860], 'A-11': [240, 9000], 'A-14': [150, 6120], 'L-01': [330, 13500], 'L-02': [570, 27000], 'S-17': [75, 3600], 'S-19': [140, 6120], 'E-11': [230, 9720], 'E-13': [220, 9000], 'E-15': [90, 4500], 'E-17': [130, 6120], 'E-21': [260, 36000], 'E-23': [280, 39600] };
 const BORDER_LEGS = new Set(['D-21', 'D-24', 'D-31', 'U-21', 'U-24', 'L-02']), TRACK_LEGS = new Set(['E-21', 'E-23']);
 const FERRY_LEGS = new Set();
 function surfaceOf(R) {
@@ -245,8 +245,7 @@ const SCENARIOS = [
       { id: 'TIF', name: 'Taif DC', kind: 'DC', layout: 'spoke', lat: 21.270, lon: 40.420, npads: 2, refuel: true, zone: 'SA', src: 'model' },
       { id: 'YNB', name: 'Yanbu Port DC', kind: 'DC', layout: 'spoke', port: true, lat: 24.090, lon: 38.060, npads: 2, refuel: true, zone: 'SA', src: 'model' },
       { id: 'ABT', name: 'Al Baha DC', kind: 'DC', layout: 'spoke', lat: 20.010, lon: 41.470, npads: 2, refuel: true, zone: 'SA', src: 'model' },
-      { id: 'AHB', name: 'Khamis Mushait DC · Abha', kind: 'DC', layout: 'spoke', lat: 18.300, lon: 42.730, npads: 2, refuel: true, zone: 'SA', src: 'model' },
-      { id: 'EAM', name: 'Najran DC', kind: 'DC', layout: 'spoke', lat: 17.530, lon: 44.200, npads: 2, refuel: true, zone: 'SA', src: 'deck' },
+      { id: 'AHB', name: 'Abha DC', kind: 'DC', layout: 'spoke', lat: 18.220, lon: 42.500, npads: 2, refuel: true, zone: 'SA', src: 'model' },
       { id: 'RAB', name: 'KAEC Port DC · Rabigh', kind: 'DC', layout: 'spoke', port: true, lat: 22.450, lon: 39.120, npads: 2, refuel: true, zone: 'SA', src: 'model' },
       { id: 'JUB', name: 'Jubail Port DC', kind: 'DC', layout: 'spoke', port: true, lat: 27.010, lon: 49.620, npads: 2, refuel: true, zone: 'SA', src: 'model' },
       { id: 'KHF', name: 'Khafji DC', kind: 'DC', layout: 'spoke', lat: 28.430, lon: 48.490, npads: 2, refuel: true, zone: 'SA', src: 'model' },
@@ -284,7 +283,6 @@ const SCENARIOS = [
       { id: 'J-21', a: 'JED', b: 'YNB', n: 4, wps: [[22.90, 38.80]], cont: [['Rabigh', 22.80, 39.03]] },
       { id: 'J-24', a: 'JED', b: 'ABT', n: 3, wps: [[20.90, 40.40]], cont: [['Al Lith inland', 20.70, 40.30]] },
       { id: 'L-03', a: 'ABT', b: 'AHB', n: 3, band: 5000, wps: [[19.10, 42.05]], cont: [['Bisha road', 19.50, 42.00]] },
-      { id: 'L-04', a: 'AHB', b: 'EAM', n: 3, band: 5000, wps: [[17.95, 43.45]], cont: [['Dhahran Al Janub road', 17.75, 43.60]] },
       { id: 'J-31', a: 'JED', b: 'RAB', n: 3, wps: [[22.00, 39.15]], cont: [['Thuwal', 22.28, 39.11]] },
       { id: 'D-11', a: 'DMM', b: 'JUB', n: 4, wps: [[26.70, 49.85]], cont: [['Qatif', 26.56, 50.01]] },
       { id: 'D-14', a: 'DMM', b: 'KHF', n: 3, wps: [[26.75, 49.35], [27.60, 48.95]], cont: [['Nairyah', 27.47, 48.48]] },
