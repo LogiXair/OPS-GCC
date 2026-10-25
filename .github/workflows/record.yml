@@ -1,0 +1,61 @@
+# Keeps the shared Gulf operations record on the calendar (day 1 = 25 Oct 2026, 06:00 AST).
+# Every hour: load the saved state from the `record` branch, fly the operation forward to now,
+# archive every operating day that closed (logs/ on main), and save the new state back to `record`.
+name: Gulf operations record
+
+on:
+  schedule:
+    - cron: '7 * * * *'          # hourly, at :07
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+concurrency:
+  group: gulf-operations-record
+  cancel-in-progress: false
+
+jobs:
+  advance:
+    runs-on: ubuntu-latest
+    timeout-minutes: 300
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Load the saved state
+        run: |
+          mkdir -p rec
+          if git fetch --depth 1 origin record; then
+            git show origin/record:state.json.gz > rec/state.json.gz || rm -f rec/state.json.gz
+          fi
+          ls -la rec
+
+      - name: Fly the record forward to now
+        run: node tools/record.js --state rec/state.json.gz --logs logs
+
+      - name: Commit the daily logs to main
+        run: |
+          git config user.name "LogiXair ops record"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add logs
+          if ! git diff --cached --quiet; then
+            git commit -m "Ops record: day logs to $(jq -r .date rec/meta.json)"
+            for i in 1 2 3; do git pull --rebase origin main && git push origin HEAD:main && break; sleep 5; done
+          fi
+
+      - name: Save the running state to the record branch
+        run: |
+          cd rec
+          git init -q -b record
+          git config user.name "LogiXair ops record"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          printf '# Operations record state\nOverwritten every hour by .github/workflows/record.yml. Read by index.html on main.\n' > README.md
+          git add state.json.gz meta.json README.md
+          git commit -q -m "Record at $(jq -r .at meta.json)"
+          git push -f "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git" record

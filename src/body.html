@@ -1,0 +1,38 @@
+<div id="app" data-sheet="">
+  <canvas id="gl" aria-label="3D view of the LogiXair network"></canvas>
+  <div class="labels" id="labels-map"></div>
+  <div class="labels" id="labels-map-sea" hidden></div>
+  <div class="labels" id="labels-site" hidden></div>
+  <div id="veil"></div>
+
+  <header id="bar" class="glass">
+    <div class="brand"><img src="%%LOGO%%" alt="LogiXair"><span>GULF&nbsp;TWIN</span></div>
+    <nav class="tabs" id="tabs" aria-label="Operation"></nav>
+    <div class="grow"></div>
+    <div id="search"><input id="q" type="search" placeholder="Find aircraft, site, corridor, pod" autocomplete="off" aria-label="Find aircraft, site, corridor or pod"><div id="qres" class="glass" hidden></div></div>
+    <div class="clock"><b class="num" id="clock">--:--:--</b><i id="clockSub">IST · LIVE</i></div>
+    <div class="seg" id="speed" role="group" aria-label="Simulation speed"></div>
+    <button class="chip ops" id="opsBtn" type="button"><span>SAR  OPS REPORT</span></button>
+    <button class="chip" id="feedBtn" type="button"><i class="dot pulse"></i><span id="feedLbl">FEED · SIMULATED</span></button>
+  </header>
+
+  <div id="sub" class="glass">
+    <div class="crumb" id="crumb"></div>
+    <div class="areas" id="areas"></div>
+    <div class="ctl"><span class="cap wx">Weather</span><div class="seg wx" id="wx" role="group" aria-label="Weather"></div><span class="cap">Light</span><div class="seg" id="light" role="group" aria-label="Time of day"></div></div>
+  </div>
+
+  <section id="kpi" aria-label="Key figures"></section>
+  <div id="hint">DRAG TO PAN · RIGHT-DRAG TO ROTATE · SCROLL TO ZOOM · CLICK ANYTHING</div>
+  <div id="scale"><span id="scaleTxt"></span><i id="scaleBar"></i></div>
+
+  <aside id="detail" class="glass" aria-label="Details"><div class="dh" id="dh"></div><div class="db" id="db"></div></aside>
+  <section id="track" class="glass" aria-label="Flight tracker"></section>
+  <section id="tables" class="glass" aria-label="Live tables"><div class="tt" id="tt"></div><div class="tw" id="tw"></div></section>
+
+  <aside id="feed" class="glass" hidden aria-label="Data feed and sources"></aside>
+  <section id="ops" class="glass" hidden aria-label="Daily operations report"></section>
+  <nav id="sheetbar" class="glass" aria-label="Panels"><button type="button" data-s="detail">DETAIL</button><button type="button" data-s="track">TRACKER</button><button type="button" data-s="tables">TABLES</button></nav>
+
+  <div id="load"><img src="%%LOGO%%" alt="LogiXair"><h1>The operating picture for uncrewed cargo.</h1><p id="loadTxt">FLYING THE MORNING'S OPERATIONS …</p></div>
+</div>
