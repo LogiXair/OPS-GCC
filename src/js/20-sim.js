@@ -20,12 +20,12 @@ const tally = (f, type, kg) => { f.pods++; f.pallets += POD.pallets; f.kg += kg;
 const lane = (f, peer, kg) => { const l = f.lane[peer] || (f.lane[peer] = { pods: 0, kg: 0 }); l.pods++; l.kg += kg; };
 
 /* ---------- business ledger: one record per operating day (06:00 to 06:00 AST), with hourly buckets ---------- */
-const ledRec = () => ({ cons: 0, rev: 0, revDry: 0, revWet: 0, kg: 0, kgDry: 0, kgWet: 0, tkm: 0, pods: 0, legs: 0, empty: 0, capKg: 0, fh: 0, dep: 0, arr: 0, holds: 0, late: 0,
+const ledRec = () => ({ cons: 0, rev: 0, revSortie: 0, revDry: 0, revWet: 0, kg: 0, kgDry: 0, kgWet: 0, tkm: 0, pods: 0, legs: 0, empty: 0, capKg: 0, fh: 0, dep: 0, arr: 0, holds: 0, late: 0,
   podsOut: 0, kgOut: 0, podsIn: 0, kgIn: 0, revOut: 0, revIn: 0, dryOut: 0, wetOut: 0, dryIn: 0, wetIn: 0, mx: 0, down: 0 });
 const ledAdd = (o, k, v) => { o[k] += v; };
 const isWet = type => !!WET_TYPES[type];
 
-const SNAP_V = 1;
+const SNAP_V = 2;
 
 class Sim {
   constructor(seed) {
@@ -36,7 +36,7 @@ class Sim {
     this.sites = {}; this.routes = {}; this.scn = {}; this.aircraft = []; this.byCs = {};
     this.requests = []; this.log = []; this.reqSeq = 4400; this.podSeq = 100;
     this.live = false;
-    this.led = null; this.days = []; this.biz = []; this._fh = {};
+    this.led = null; this.days = []; this.biz = []; this._fh = {}; this._fhR = {};
     this._build(); this._seedRest(); this._ledger();
   }
 
@@ -309,7 +309,8 @@ class Sim {
     for (const a of this.aircraft) this._stepAircraft(a, dt);
     this._bookFh();
   }
-  _bookFh() { for (const scn in this._fh) { if (this._fh[scn]) this._book(scn, null, null, 'fh', this._fh[scn]); this._fh[scn] = 0; } }
+  _bookFh() { for (const scn in this._fh) { if (this._fh[scn]) this._book(scn, null, null, 'fh', this._fh[scn]); this._fh[scn] = 0; }
+    const L = this.led; if (L) for (const rid in this._fhR) { if (this._fhR[rid]) (L.route[rid] || (L.route[rid] = ledRec())).fh += this._fhR[rid]; this._fhR[rid] = 0; } }
 
   /* ----- ground: pads, pods, fuel ----- */
   _stepSite(site, dt) {
@@ -427,10 +428,10 @@ class Sim {
     if (a.pod && a.req) {
       a.req.state = 'DELIVERED'; a.req.tDel = this.t;
       S.kpi.kg += a.pod.kg;
-      const from = this.sites[a.from], km = distKm(from.lat, from.lon, site.lat, site.lon), wet = isWet(a.pod.type), rate = wet ? TARIFF.WET : TARIFF.DRY, kg = a.pod.kg, rev = kg * km * rate;
+      const from = this.sites[a.from], km = distKm(from.lat, from.lon, site.lat, site.lon), wet = isWet(a.pod.type), rate = wet ? TARIFF.WET : TARIFF.DRY, kg = a.pod.kg, sortie = TARIFF.SORTIE[a.scn], rev = sortie != null ? sortie : kg * km * rate;
       a.req.km = km; a.req.rev = rev; { const L = this._lastLeg(a); if (L && L.to === site.id) L.rev = Math.round(rev); }
       const bk = (sid, k, v) => this._book(a.scn, sid, null, k, v), rid = a.route;
-      this._book(a.scn, null, rid, 'rev', rev); this._book(a.scn, null, rid, wet ? 'revWet' : 'revDry', rev); this._book(a.scn, null, rid, 'kg', kg); this._book(a.scn, null, rid, wet ? 'kgWet' : 'kgDry', kg);
+      this._book(a.scn, null, rid, 'rev', rev); if (sortie != null) this._book(a.scn, null, rid, 'revSortie', rev); this._book(a.scn, null, rid, wet ? 'revWet' : 'revDry', rev); this._book(a.scn, null, rid, 'kg', kg); this._book(a.scn, null, rid, wet ? 'kgWet' : 'kgDry', kg);
       this._book(a.scn, null, rid, 'tkm', kg / 1000 * km); this._book(a.scn, null, rid, 'pods', 1); this._book(a.scn, null, rid, 'cons', a.pod.n || 1);
       bk(from.id, 'revOut', rev); bk(site.id, 'revIn', rev); bk(site.id, 'podsIn', 1); bk(site.id, 'kgIn', kg); bk(site.id, wet ? 'wetIn' : 'dryIn', kg);
       if (site.dock) { site.dock.qBreak.push({ type: a.pod.type, kg: a.pod.kg, from: a.from, cs: a.cs }); site.dock.qMax = Math.max(site.dock.qMax, site.dock.qBreak.length); }          // its two pallets go out by road
@@ -535,7 +536,7 @@ class Sim {
     if (ph === 'GROUND') return;
     const vT = L560.transSpeedMs, vC = L560.cruiseKmh / 3.6, hov = L560.hoverAltM, S = this.scn[a.scn];
     const from = this.sites[a.from], to = this.sites[a.to];
-    a.tPhase += dt; a.fh += dt / 3600; a.duty += dt / 3600; a.rpm = 1; this._fh[a.scn] = (this._fh[a.scn] || 0) + dt / 3600;
+    a.tPhase += dt; a.fh += dt / 3600; a.duty += dt / 3600; a.rpm = 1; this._fh[a.scn] = (this._fh[a.scn] || 0) + dt / 3600; if (a.route) this._fhR[a.route] = (this._fhR[a.route] || 0) + dt / 3600;
     const prevAlt = a.alt, plat = a.lat, plon = a.lon;
     switch (ph) {
       case 'LIFT': {

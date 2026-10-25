@@ -327,13 +327,15 @@ const GEO = {"bbox":[34.0,60.0,15.5,32.5],"q":600,"land":[[0,0,0,9428,28,9438,13
      [conops]  LogiXair Regulatory Framework & ConOps
      [vector]  LogiXair Vector consoles (vector-core.js)
      [mro]     LogiXair MRO calculator
+     [deck]    LogiXair × Saudi Brothers partnership presentation, Oct 2026
      [model]   modelling assumption made for this twin, not a LogiXair figure
    ========================================================================== */
 
 const L560 = {
   payloadKg: 300,        // [thesis]
   rangeKm: 600,          // [thesis]
-  mtowKg: 1350,          // [conops]
+  mtowKg: 1600,          // [deck] about 1.6 t: registered as an aircraft under GACAR Part 47
+  fuelLph: 30,           // [deck] hybrid-electric on common fuels, 30 litres per flight hour
   cruiseKmh: 250,        // [conops]
   footprintM: [7, 5],    // [thesis]
   rotors: '6+2',         // [thesis] 4 on the front tilt-wing, 2 on the rear, 2 fixed on the centreline (Fig. 01)
@@ -366,9 +368,36 @@ const WET_TYPES = { COLD: 1, LIQ: 1 };
 const DOCK = { vIn: 52, move: 44, vOut: 50 };
 const MX = { basicFh: 175, fullFh: 850, lifeFh: 20000, basicDurS: 3 * 3600 };  // [mro]; duration [model]
 
-/* Tariff, rupees per kg per km [LogiXair]: wet = cold chain and liquid pods, everything else dry.
-   Billed on the great-circle distance between the two sites at delivery [model]; maintenance ferries and empty legs earn nothing. */
-const TARIFF = { DRY: 0.008, WET: 0.014 };         // SAR per kg per km, Gulf rates [LogiXair, Oct 2026]
+/* Tariff [deck]: SAR 0.030 per kg·km (base case), SAR 0.025 in the cautious case; one rate for dry and chilled pods.
+   Billed on the great-circle distance between the two sites at delivery [model]; maintenance ferries and empty legs earn nothing.
+   Offshore is priced per sortie [deck: "per-sortie pricing"]; the SAR 1,500 figure is a placeholder [model], about a quarter of
+   what a helicopter costs for the same load (SAR 31/kg × 217.5 kg ≈ SAR 6,700 at 90 km [deck]). */
+const TARIFF = { DRY: 0.030, WET: 0.030, CAUTIOUS: 0.025, SORTIE: { OF: 1500 } };
+/* Operating cost of the aircraft [deck, A5]: SAR 848 per flight hour at 6 FH a day, 300 days a year, plus SAR 340 per landing
+   (battery reserve, handling and site fees). Ownership, insurance and the operations centre do not change with hours flown,
+   so the twin charges them per airframe per calendar day (SAR/FH × 1,800 FH ÷ 365) and the rest per hour flown. */
+const COST = {
+  fh: { fuel: 60, mx: 210, pilot: 113, satcom: 25 },          // SAR per flight hour: fuel 30 L × SAR 2.00, maintenance and powertrain reserve, remote pilot, satellite datalink
+  fixedFh: { own: 227, ins: 113, ops: 100 },                  // SAR per flight hour at the deck's 1,800 FH a year: depreciation, hull and liability, ops centre and software
+  basisFhYr: 1800, landing: 340, unitSar: 2.7e6,              // aircraft unit cost, early Saudi-built units, 1.6× the India cost
+  deckLoadKg: 217.5, heliSarH: 11000, roadSarKm: 4,           // average load; helicopter and road comparisons (estimates in the deck)
+  LABEL: { own: 'Aircraft ownership (depreciation)', ins: 'Insurance, hull and liability', ops: 'Operations centre and software', fuel: 'Fuel, 30 L at SAR 2.00', mx: 'Maintenance and powertrain reserve', pilot: 'Remote pilot', satcom: 'Satellite datalink', landing: 'Landings: battery reserve, handling, site fees' }
+};
+COST.fixedDay = (COST.fixedFh.own + COST.fixedFh.ins + COST.fixedFh.ops) * COST.basisFhYr / 365;    // per airframe per day
+COST.varFh = COST.fh.fuel + COST.fh.mx + COST.fh.pilot + COST.fh.satcom;
+COST.deckFh = COST.varFh + COST.fixedFh.own + COST.fixedFh.ins + COST.fixedFh.ops;                     // 848
+/* direct cost of a ledger record: hours flown, landings, and the fleet's fixed cost for the hours elapsed */
+function costOf(r, airframes, hours) {
+  const d = hours / 24, k = airframes * COST.basisFhYr / 365 * d, c = {
+    own: k * COST.fixedFh.own, ins: k * COST.fixedFh.ins, ops: k * COST.fixedFh.ops,
+    fuel: r.fh * COST.fh.fuel, mx: r.fh * COST.fh.mx, pilot: r.fh * COST.fh.pilot, satcom: r.fh * COST.fh.satcom, landing: r.arr * COST.landing };
+  c.fixed = c.own + c.ins + c.ops; c.variable = c.fuel + c.mx + c.pilot + c.satcom + c.landing; c.total = c.fixed + c.variable; return c;
+}
+/* revenue at another kg·km price: per-sortie revenue does not move with the tariff */
+const revAt = (r, price) => (r.rev - (r.revSortie || 0)) * price / TARIFF.DRY + (r.revSortie || 0);
+/* the deck's sortie cost: SAR 340 a landing plus SAR 848 an hour over 0.25 h of ground, climb and approach and the leg at 220 km/h block speed */
+const deckSortie = km => COST.landing + COST.deckFh * (0.25 + km / 220);
+
 /* Demand: share of each line's roster wanted in the air, hour by hour (AST) [model] — a peak from 10:00 to 15:00,
    a long evening taper and a thin night service. Airframes not needed stand down wherever their last leg ended:
    in the base line hangar (limited slots), on a stand, or on an outstation's night stand. No positioning legs. */
@@ -437,7 +466,7 @@ const SURFACE = { roadKmh: 31.25, boatKmh: 22.2 };
    Qatar, Kuwait, Oman). The Empty Quarter camps have no road: a desert track at about 25 km/h. Island and offshore legs
    compare with a supply boat. */
 const ROAD_TRAFFIC = 1;
-const ROAD = { 'R-11': [110, 4860], 'R-14': [345, 12600], 'R-17': [330, 12060], 'R-21': [300, 10980], 'R-24': [190, 7200], 'T-10': [410, 14400], 'J-11': [85, 4500], 'J-14': [420, 15300], 'J-17': [170, 8100], 'J-21': [340, 12600], 'J-24': [400, 18000], 'J-31': [120, 4860], 'L-03': [300, 16200], 'D-11': [95, 3600], 'D-14': [300, 10800], 'D-17': [430, 16200], 'D-21': [70, 6300], 'D-24': [400, 18900], 'D-27': [155, 6120], 'D-31': [400, 18000], 'T-11': [190, 9000], 'T-14': [180, 7200], 'T-17': [290, 11700], 'T-21': [260, 9900], 'U-11': [130, 5400], 'U-14': [140, 6300], 'U-17': [150, 6300], 'U-21': [260, 12600], 'U-24': [450, 18900], 'U-10': [110, 4860], 'A-11': [240, 9000], 'A-14': [150, 6120], 'L-01': [330, 13500], 'L-02': [570, 27000], 'S-17': [75, 3600], 'S-19': [140, 6120], 'E-11': [230, 9720], 'E-13': [220, 9000], 'E-15': [90, 4500], 'E-17': [130, 6120], 'E-21': [260, 36000], 'E-23': [280, 39600] };
+const ROAD = { 'R-11': [110, 4860], 'R-14': [345, 12600], 'R-17': [330, 12060], 'R-21': [300, 10980], 'R-24': [190, 7200], 'T-10': [410, 14400], 'J-11': [85, 4500], 'J-14': [420, 15300], 'J-17': [170, 8100], 'J-21': [340, 12600], 'J-24': [400, 18000], 'J-31': [120, 4860], 'L-03': [325, 17100], 'L-04': [245, 10200], 'D-11': [95, 3600], 'D-14': [300, 10800], 'D-17': [430, 16200], 'D-21': [70, 6300], 'D-24': [400, 18900], 'D-27': [155, 6120], 'D-31': [400, 18000], 'T-11': [190, 9000], 'T-14': [180, 7200], 'T-17': [290, 11700], 'T-21': [260, 9900], 'U-11': [130, 5400], 'U-14': [140, 6300], 'U-17': [150, 6300], 'U-21': [260, 12600], 'U-24': [450, 18900], 'U-10': [110, 4860], 'A-11': [240, 9000], 'A-14': [150, 6120], 'L-01': [330, 13500], 'L-02': [570, 27000], 'S-17': [75, 3600], 'S-19': [140, 6120], 'E-11': [230, 9720], 'E-13': [220, 9000], 'E-15': [90, 4500], 'E-17': [130, 6120], 'E-21': [260, 36000], 'E-23': [280, 39600] };
 const BORDER_LEGS = new Set(['D-21', 'D-24', 'D-31', 'U-21', 'U-24', 'L-02']), TRACK_LEGS = new Set(['E-21', 'E-23']);
 const FERRY_LEGS = new Set();
 function surfaceOf(R) {
@@ -538,7 +567,8 @@ const SCENARIOS = [
       { id: 'TIF', name: 'Taif DC', kind: 'DC', layout: 'spoke', lat: 21.270, lon: 40.420, npads: 2, refuel: true, zone: 'SA', src: 'model' },
       { id: 'YNB', name: 'Yanbu Port DC', kind: 'DC', layout: 'spoke', port: true, lat: 24.090, lon: 38.060, npads: 2, refuel: true, zone: 'SA', src: 'model' },
       { id: 'ABT', name: 'Al Baha DC', kind: 'DC', layout: 'spoke', lat: 20.010, lon: 41.470, npads: 2, refuel: true, zone: 'SA', src: 'model' },
-      { id: 'AHB', name: 'Abha DC', kind: 'DC', layout: 'spoke', lat: 18.220, lon: 42.500, npads: 2, refuel: true, zone: 'SA', src: 'model' },
+      { id: 'AHB', name: 'Khamis Mushait DC · Abha', kind: 'DC', layout: 'spoke', lat: 18.300, lon: 42.730, npads: 2, refuel: true, zone: 'SA', src: 'model' },
+      { id: 'EAM', name: 'Najran DC', kind: 'DC', layout: 'spoke', lat: 17.530, lon: 44.200, npads: 2, refuel: true, zone: 'SA', src: 'deck' },
       { id: 'RAB', name: 'KAEC Port DC · Rabigh', kind: 'DC', layout: 'spoke', port: true, lat: 22.450, lon: 39.120, npads: 2, refuel: true, zone: 'SA', src: 'model' },
       { id: 'JUB', name: 'Jubail Port DC', kind: 'DC', layout: 'spoke', port: true, lat: 27.010, lon: 49.620, npads: 2, refuel: true, zone: 'SA', src: 'model' },
       { id: 'KHF', name: 'Khafji DC', kind: 'DC', layout: 'spoke', lat: 28.430, lon: 48.490, npads: 2, refuel: true, zone: 'SA', src: 'model' },
@@ -576,6 +606,7 @@ const SCENARIOS = [
       { id: 'J-21', a: 'JED', b: 'YNB', n: 4, wps: [[22.90, 38.80]], cont: [['Rabigh', 22.80, 39.03]] },
       { id: 'J-24', a: 'JED', b: 'ABT', n: 3, wps: [[20.90, 40.40]], cont: [['Al Lith inland', 20.70, 40.30]] },
       { id: 'L-03', a: 'ABT', b: 'AHB', n: 3, band: 5000, wps: [[19.10, 42.05]], cont: [['Bisha road', 19.50, 42.00]] },
+      { id: 'L-04', a: 'AHB', b: 'EAM', n: 3, band: 5000, wps: [[17.95, 43.45]], cont: [['Dhahran Al Janub road', 17.75, 43.60]] },
       { id: 'J-31', a: 'JED', b: 'RAB', n: 3, wps: [[22.00, 39.15]], cont: [['Thuwal', 22.28, 39.11]] },
       { id: 'D-11', a: 'DMM', b: 'JUB', n: 4, wps: [[26.70, 49.85]], cont: [['Qatif', 26.56, 50.01]] },
       { id: 'D-14', a: 'DMM', b: 'KHF', n: 3, wps: [[26.75, 49.35], [27.60, 48.95]], cont: [['Nairyah', 27.47, 48.48]] },
@@ -847,12 +878,12 @@ const tally = (f, type, kg) => { f.pods++; f.pallets += POD.pallets; f.kg += kg;
 const lane = (f, peer, kg) => { const l = f.lane[peer] || (f.lane[peer] = { pods: 0, kg: 0 }); l.pods++; l.kg += kg; };
 
 /* ---------- business ledger: one record per operating day (06:00 to 06:00 AST), with hourly buckets ---------- */
-const ledRec = () => ({ cons: 0, rev: 0, revDry: 0, revWet: 0, kg: 0, kgDry: 0, kgWet: 0, tkm: 0, pods: 0, legs: 0, empty: 0, capKg: 0, fh: 0, dep: 0, arr: 0, holds: 0, late: 0,
+const ledRec = () => ({ cons: 0, rev: 0, revSortie: 0, revDry: 0, revWet: 0, kg: 0, kgDry: 0, kgWet: 0, tkm: 0, pods: 0, legs: 0, empty: 0, capKg: 0, fh: 0, dep: 0, arr: 0, holds: 0, late: 0,
   podsOut: 0, kgOut: 0, podsIn: 0, kgIn: 0, revOut: 0, revIn: 0, dryOut: 0, wetOut: 0, dryIn: 0, wetIn: 0, mx: 0, down: 0 });
 const ledAdd = (o, k, v) => { o[k] += v; };
 const isWet = type => !!WET_TYPES[type];
 
-const SNAP_V = 1;
+const SNAP_V = 2;
 
 class Sim {
   constructor(seed) {
@@ -863,7 +894,7 @@ class Sim {
     this.sites = {}; this.routes = {}; this.scn = {}; this.aircraft = []; this.byCs = {};
     this.requests = []; this.log = []; this.reqSeq = 4400; this.podSeq = 100;
     this.live = false;
-    this.led = null; this.days = []; this.biz = []; this._fh = {};
+    this.led = null; this.days = []; this.biz = []; this._fh = {}; this._fhR = {};
     this._build(); this._seedRest(); this._ledger();
   }
 
@@ -1136,7 +1167,8 @@ class Sim {
     for (const a of this.aircraft) this._stepAircraft(a, dt);
     this._bookFh();
   }
-  _bookFh() { for (const scn in this._fh) { if (this._fh[scn]) this._book(scn, null, null, 'fh', this._fh[scn]); this._fh[scn] = 0; } }
+  _bookFh() { for (const scn in this._fh) { if (this._fh[scn]) this._book(scn, null, null, 'fh', this._fh[scn]); this._fh[scn] = 0; }
+    const L = this.led; if (L) for (const rid in this._fhR) { if (this._fhR[rid]) (L.route[rid] || (L.route[rid] = ledRec())).fh += this._fhR[rid]; this._fhR[rid] = 0; } }
 
   /* ----- ground: pads, pods, fuel ----- */
   _stepSite(site, dt) {
@@ -1254,10 +1286,10 @@ class Sim {
     if (a.pod && a.req) {
       a.req.state = 'DELIVERED'; a.req.tDel = this.t;
       S.kpi.kg += a.pod.kg;
-      const from = this.sites[a.from], km = distKm(from.lat, from.lon, site.lat, site.lon), wet = isWet(a.pod.type), rate = wet ? TARIFF.WET : TARIFF.DRY, kg = a.pod.kg, rev = kg * km * rate;
+      const from = this.sites[a.from], km = distKm(from.lat, from.lon, site.lat, site.lon), wet = isWet(a.pod.type), rate = wet ? TARIFF.WET : TARIFF.DRY, kg = a.pod.kg, sortie = TARIFF.SORTIE[a.scn], rev = sortie != null ? sortie : kg * km * rate;
       a.req.km = km; a.req.rev = rev; { const L = this._lastLeg(a); if (L && L.to === site.id) L.rev = Math.round(rev); }
       const bk = (sid, k, v) => this._book(a.scn, sid, null, k, v), rid = a.route;
-      this._book(a.scn, null, rid, 'rev', rev); this._book(a.scn, null, rid, wet ? 'revWet' : 'revDry', rev); this._book(a.scn, null, rid, 'kg', kg); this._book(a.scn, null, rid, wet ? 'kgWet' : 'kgDry', kg);
+      this._book(a.scn, null, rid, 'rev', rev); if (sortie != null) this._book(a.scn, null, rid, 'revSortie', rev); this._book(a.scn, null, rid, wet ? 'revWet' : 'revDry', rev); this._book(a.scn, null, rid, 'kg', kg); this._book(a.scn, null, rid, wet ? 'kgWet' : 'kgDry', kg);
       this._book(a.scn, null, rid, 'tkm', kg / 1000 * km); this._book(a.scn, null, rid, 'pods', 1); this._book(a.scn, null, rid, 'cons', a.pod.n || 1);
       bk(from.id, 'revOut', rev); bk(site.id, 'revIn', rev); bk(site.id, 'podsIn', 1); bk(site.id, 'kgIn', kg); bk(site.id, wet ? 'wetIn' : 'dryIn', kg);
       if (site.dock) { site.dock.qBreak.push({ type: a.pod.type, kg: a.pod.kg, from: a.from, cs: a.cs }); site.dock.qMax = Math.max(site.dock.qMax, site.dock.qBreak.length); }          // its two pallets go out by road
@@ -1362,7 +1394,7 @@ class Sim {
     if (ph === 'GROUND') return;
     const vT = L560.transSpeedMs, vC = L560.cruiseKmh / 3.6, hov = L560.hoverAltM, S = this.scn[a.scn];
     const from = this.sites[a.from], to = this.sites[a.to];
-    a.tPhase += dt; a.fh += dt / 3600; a.duty += dt / 3600; a.rpm = 1; this._fh[a.scn] = (this._fh[a.scn] || 0) + dt / 3600;
+    a.tPhase += dt; a.fh += dt / 3600; a.duty += dt / 3600; a.rpm = 1; this._fh[a.scn] = (this._fh[a.scn] || 0) + dt / 3600; if (a.route) this._fhR[a.route] = (this._fhR[a.route] || 0) + dt / 3600;
     const prevAlt = a.alt, plat = a.lat, plon = a.lon;
     switch (ph) {
       case 'LIFT': {
@@ -4215,9 +4247,9 @@ class UI {
       '<div><h4>The record · ' + esc(this.app.live.label()) + '</h4><p>Day 1 began at 06:00 AST on 25 Oct 2026 and the operation is one continuous record on the calendar: one simulated day is one real day. A backend job in the GitHub repository flies the record forward every hour, saves the full state and archives each closed day (totals per line, hub and corridor, and every leg flown) in <a href="' + REC.logs + '" target="_blank" rel="noopener">logs/</a>. Everyone who opens the page lands on today. The speed buttons fast-forward your own view; TODAY brings it back to the shared record.</p></div>' +
       '<div><h4>Going live</h4><pre>VectorTwin.ingest({ aircraft: [ record, … ] })\n// ingested aircraft stop being simulated and follow the feed\nVectorTwin.state()      // sites, pads, requests, log\nVectorTwin.config       // routes, sites and every constant below</pre></div>' +
       '<div><h4>What is real, what is modelled</h4><div class="tw" style="border:1px solid var(--line)"><table><thead><tr><th>ITEM</th><th>VALUE</th><th>SOURCE</th></tr></thead><tbody>' +
-      row('Payload · range', L560.payloadKg + ' kg · ' + L560.rangeKm + ' km', 'LogiXair thesis') + row('MTOW · cruise', fmtInt(L560.mtowKg) + ' kg · ' + L560.cruiseKmh + ' km/h', 'LogiXair ConOps') + row('Footprint · rotors', '7 m × 5 m · 6+2', 'LogiXair thesis') +
+      row('Payload · range', L560.payloadKg + ' kg · ' + L560.rangeKm + ' km', 'LogiXair thesis') + row('MTOW · cruise · fuel', 'about ' + fmtInt(L560.mtowKg) + ' kg · ' + L560.cruiseKmh + ' km/h · ' + L560.fuelLph + ' L per flight hour', 'Saudi Brothers deck, Oct 2026') + row('Footprint · rotors', '7 m × 5 m · 6+2', 'LogiXair thesis') +
       row('Corridor box', '± ' + CORRIDOR.halfWidthM + ' m · ' + fmtInt(CORRIDOR.floorFt) + '–' + fmtInt(CORRIDOR.ceilFt) + ' ft · ' + fmtInt(CORRIDOR.baseLevelFt) + ' ft operating', 'LogiXair ConOps') + row('Separation · hold', CORRIDOR.sepVertFt + ' ft / ' + CORRIDOR.sepTrailKm.toFixed(1) + ' km · ' + CORRIDOR.holdRadiusKm + ' km orbit', 'Vector Air') +
-      row('Pod', POD.lenM.toFixed(2) + ' × ' + POD.widthM.toFixed(2) + ' × ' + POD.heightM.toFixed(2) + ' m · ' + POD.pallets + ' pallets in tandem', 'LogiXair') + row('Tariff', 'dry SAR ' + TARIFF.DRY.toFixed(3) + ' · wet SAR ' + TARIFF.WET.toFixed(3) + ' per kg per km', 'LogiXair') + row('Billed distance', 'great-circle km between the two sites', 'modelled') + row('Road comparison', 'real road km and drive time per corridor (typical Google Maps figures incl. border crossings; desert track where there is no road; boat for islands and offshore', 'estimated, Oct 2026') + row('Demand by hour', 'peak 10:00–15:00 (97% of roster), evening taper, night ' + Math.round(DEMAND[2] * 100) + '%', 'your brief, curve modelled') + row('Stand-down', 'where the last leg ended · daily inspection ≥ ' + (DUTY.minRestS / 3600) + ' h · max ' + DUTY.maxFh + ' FH per duty', 'modelled') + row('Line hangar', LAYOUTS.base.hangar + ' slots per base · ' + LAYOUTS.quay.hangar + ' per shore base · 4 stands per base and outstation', 'your brief / modelled') + row('Cargo mix', 'dry 20% above wet', 'your brief') + row('Pallet footprint', POD.palletMm[0] + ' × ' + POD.palletMm[1] + ' mm (EUR)', 'modelled') +
+      row('Pod', POD.lenM.toFixed(2) + ' × ' + POD.widthM.toFixed(2) + ' × ' + POD.heightM.toFixed(2) + ' m · ' + POD.pallets + ' pallets in tandem', 'LogiXair') + row('Price', 'SAR ' + TARIFF.DRY.toFixed(3) + ' per kg·km, dry and chilled (cautious case SAR ' + TARIFF.CAUTIOUS.toFixed(3) + ')', 'Saudi Brothers deck (A9)') + row('Offshore price', 'SAR ' + fmtInt(TARIFF.SORTIE.OF) + ' per loaded sortie', 'deck says per-sortie pricing; the figure is a placeholder') + row('Operating cost', 'SAR ' + COST.deckFh + ' per flight hour (ownership 227 · insurance 113 · fuel 60 · maintenance 210 · remote pilot 113 · ops centre 100 · satcom 25) + SAR ' + COST.landing + ' per landing', 'Saudi Brothers deck (A5)') + row('Fixed cost per airframe', 'SAR ' + fmtInt(COST.fixedDay) + ' a day: ownership, insurance and ops centre at the deck\'s 1,800 FH a year', 'derived from the deck') + row('Aircraft unit cost', 'SAR ' + (COST.unitSar / 1e6).toFixed(1) + 'M, early Saudi-built units', 'Saudi Brothers deck (A5)') + row('Helicopter · road comparison', 'SAR ' + fmtInt(COST.heliSarH) + ' an hour · SAR ' + COST.roadSarKm + ' a km', 'deck estimates') + row('Billed distance', 'great-circle km between the two sites', 'modelled') + row('Road comparison', 'real road km and drive time per corridor (typical Google Maps figures incl. border crossings; desert track where there is no road; boat for islands and offshore', 'estimated, Oct 2026') + row('Demand by hour', 'peak 10:00–15:00 (97% of roster), evening taper, night ' + Math.round(DEMAND[2] * 100) + '%', 'your brief, curve modelled') + row('Stand-down', 'where the last leg ended · daily inspection ≥ ' + (DUTY.minRestS / 3600) + ' h · max ' + DUTY.maxFh + ' FH per duty', 'modelled') + row('Line hangar', LAYOUTS.base.hangar + ' slots per base · ' + LAYOUTS.quay.hangar + ' per shore base · 4 stands per base and outstation', 'your brief / modelled') + row('Cargo mix', 'dry 20% above wet', 'your brief') + row('Pallet footprint', POD.palletMm[0] + ' × ' + POD.palletMm[1] + ' mm (EUR)', 'modelled') +
       row('Supervision', '1 pilot : ' + CORRIDOR.pilotMax + ' aircraft · all pilots at one ROC per operation · shifts follow demand', 'Vector Air / modelled') + row('C2 ground stations', 'about every ' + C2.spacingKm + ' km on land corridors · handoff hysteresis ' + C2.hystKm + ' km · SATCOM beyond ' + C2.satKm + ' km', 'modelled') + row('Pads', '10 × 10 m, fenced, for a 7 × 5 m aircraft', 'your brief') + row('Check pull-forward', 'within ' + DUTY.mxWindowFh + ' FH: overnight at the MRO hub if within ' + DUTY.mroNearKm + ' km of the base · MRO hangars ' + LAYOUTS.mro.hangar + ' slots', 'your brief') + row('Checks', 'basic ' + MX.basicFh + ' FH · full ' + MX.fullFh + ' FH', 'LogiXair MRO calculator') + 
       row('Coast, state lines, rivers, cities, airports', 'true position', 'Natural Earth 1:10m') + row('Relief and land colour', 'indicative, about 10 km per sample', 'NASA Blue Marble derivatives') +
       row('All bases, distribution centres, shore bases and camps', 'placeholder sites near the named towns, ports and fields', 'modelled') + row('Offshore fields and islands', 'approximate positions; no operator agreement implied', 'modelled') + row('Red Sea resort islands, NEOM, Empty Quarter camps', 'indicative positions', 'modelled') + row('Corridor paths, fleet per corridor', 'kept within the L560 range with reserve; the Taif corridor routes north of Makkah', 'modelled') + row('Level band per base', '2,200 · 3,400 · 4,600 ft; DC-to-DC lines at 5,000 ft', 'modelled inside the ConOps box') +
@@ -4253,16 +4285,26 @@ const inr = v => { const a = Math.abs(v); return 'SAR ' + (a >= 1e6 ? (v / 1e6).
 const inrFull = v => 'SAR ' + Math.round(v).toLocaleString('en-US');
 const tt = kg => (kg / 1000).toFixed(kg >= 100000 ? 0 : 1);
 const pct = (a, b) => b ? (a / b * 100).toFixed(1) + '%' : '—';
-const LINE_NAME = { MM: 'Middle-mile', NV: 'Navy ship-to-shore', OF: 'Offshore' };
+const LINE_NAME = { MM: 'Middle-mile', NV: 'Navy ship-to-shore', OF: 'Offshore', RS: 'Red Sea islands', DS: 'Desert camps' };
+const sgn = v => (v < 0 ? '−' : '') + inr(Math.abs(v));
+const mcls = (num, den) => den && num / den < 0 ? ' c-hot' : '';
+/* the six illustrative corridors of the deck (A6), with the twin corridor that flies the same pair */
+const DECK_CORR = [
+  ['Jeddah – Taif', 170, 1207, 5.6, 49, 850, ['J-17']], ['Riyadh – Qassim', 330, 1824, 8.4, 86, 1650, ['R-14']], ['Dammam – Riyadh', 400, 2094, 9.6, 102, 2000, ['T-10']],
+  ['Jeddah – Madinah', 420, 2171, 10.0, 107, 2100, ['J-14']], ['Khamis Mushait – Najran', 180, 1246, 5.7, 51, 900, ['L-04']], ['Ras Tanura – offshore', 90, 899, 4.1, 31, null, ['O-21', 'O-23', 'O-25', 'O-27']]
+];
+/* the venture plan in the deck (A7, A9), SAR millions */
+const DECK_PLAN = { years: [2027, 2028, 2029, 2030, 2031], mil: [0, 2, 6, 12, 20], com: [0, 1, 4, 10, 20], rev: [0, 10.9, 37.1, 84.4, 159.9], direct: [0, 7.0, 23.0, 49.7, 90.8], overhead: [6.6, 9.6, 10.6, 13.1, 16.1], ebitda: [-6.6, -5.7, 3.5, 21.6, 53.0], net: [-7.2, -7.9, -0.2, 13.7, 38.3] };
 
 class OpsReport {
   constructor(ui) {
-    this.ui = ui; this.sim = ui.sim; this.tab = 'TODAY'; this.scope = 'ALL'; this.hub = 'ALL'; this.open = false;
+    this.ui = ui; this.sim = ui.sim; this.tab = 'TODAY'; this.scope = 'ALL'; this.price = TARIFF.DRY; this.period = 'LAST'; this.hub = 'ALL'; this.open = false;
     const el = $('ops');
     el.addEventListener('click', e => {
       const b = e.target.closest('button'); if (!b) return;
-      const t = b.getAttribute('data-otab'), s = b.getAttribute('data-oscope'), h = b.getAttribute('data-ohub'), a = b.getAttribute('data-oact');
-      if (t) { this.tab = t; this.render(true); } else if (s) { this.scope = s; this.hub = 'ALL'; this.render(true); } else if (h) { this.hub = h; this.render(true); }
+      const t = b.getAttribute('data-otab'), s = b.getAttribute('data-oscope'), pr = b.getAttribute('data-oprice'), h = b.getAttribute('data-ohub'), a = b.getAttribute('data-oact');
+      const pd = b.getAttribute('data-operiod');
+      if (pd) { this.period = pd; this.render(true); } else if (pr) { this.price = +pr; this.render(true); } else if (t) { this.tab = t; this.render(true); } else if (s) { this.scope = s; this.hub = 'ALL'; this.render(true); } else if (h) { this.hub = h; this.render(true); }
       else if (a === 'close') this.show(false);
       else if (a === 'site') { this.show(false); this.ui.app.select({ type: 'site', id: b.getAttribute('data-v') }, true); }
       else if (a === 'csv') this.exportCsv(b.getAttribute('data-v'));
@@ -4276,12 +4318,14 @@ class OpsReport {
   inScope(scn) { return this.scope === 'ALL' || scn === this.scope; }
   dayRec(L) { if (this.scope === 'ALL') return L.tot; return L.scn[this.scope] || ledRec(); }
   fleet() { return this.sim.aircraft.filter(a => this.inScope(a.scn) && a.phase !== 'STANDBY').length; }
+  airframes(scn) { return this.sim.aircraft.filter(a => scn ? a.scn === scn : this.inScope(a.scn)).length; }          // every airframe owned, spares included
+  hrsOf(L) { return L === this.sim.led ? clamp((this.sim.t - L.t0) / 3600, 0, 24) : 24; }
 
   render(force) {
     if (!this.open) return;
     const sim = this.sim, L = sim.led, el = $('ops'), keep = force ? 0 : (el.querySelector('.ob') ? el.querySelector('.ob').scrollTop : 0);
     const hrs = (sim.t - L.t0) / 3600;
-    const tabs = ['TODAY', 'FLEET', 'HUBS', 'CORRIDORS', 'HUB LOG', 'DAILY CLOSE'];
+    const tabs = ['TODAY', 'ECONOMICS', 'FLEET', 'HUBS', 'CORRIDORS', 'HUB LOG', 'DAILY CLOSE'];
     const scopes = [['ALL', 'ALL LINES'], ['MM', 'MIDDLE-MILE'], ['OF', 'OFFSHORE'], ['RS', 'RED SEA'], ['DS', 'DESERT CAMPS']];
     let head = '<div class="oh"><div class="row"><span class="cap">LogiXair · company operations · day ' + (L.day + 1) + ' · 06:00 → ' + fmtClock(sim.t) + ' AST · ' + hrs.toFixed(1) + ' h</span><button type="button" class="x" data-oact="close" aria-label="Close">×</button></div>' +
       '<h2>Daily operations report</h2>' +
@@ -4289,6 +4333,7 @@ class OpsReport {
       '<div class="seg">' + scopes.map(s => '<button type="button" data-oscope="' + s[0] + '"' + (s[0] === this.scope ? ' class="on"' : '') + '>' + s[1] + '</button>').join('') + '</div></div></div>';
     let body = '';
     if (this.tab === 'TODAY') body = this.today(L);
+    else if (this.tab === 'ECONOMICS') body = this.econ(this.period === 'LAST' && sim.days.length ? sim.days[sim.days.length - 1] : L);
     else if (this.tab === 'FLEET') body = this.fleetPos();
     else if (this.tab === 'HUBS') body = this.hubs(L);
     else if (this.tab === 'CORRIDORS') body = this.corridors(L);
@@ -4304,23 +4349,82 @@ class OpsReport {
     const cells = [
       ['REVENUE TODAY', inr(r.rev), inrFull(r.rev)], ['LAST FULL HOUR', lh ? inr(lh.rev) : '—', lh ? lh.pods + ' deliveries' : 'first hour running'],
       ['CARGO DELIVERED', tt(r.kg) + '<small>t</small>', r.pods + ' pods · ' + (r.pods * POD.pallets) + ' pallets'], ['TONNE-KM', fmtInt(r.tkm), 'billed distance × weight'],
-      ['YIELD', 'SAR ' + (r.tkm ? (r.rev / r.tkm).toFixed(0) : '—') + '<small>/t·km</small>', 'dry SAR ' + (TARIFF.DRY * 1000).toFixed(0) + ' · wet SAR ' + (TARIFF.WET * 1000).toFixed(0) + ' per t·km'],
+      ['YIELD', 'SAR ' + (r.tkm ? (r.rev / r.tkm).toFixed(0) : '—') + '<small>/t·km</small>', 'SAR ' + (TARIFF.DRY * 1000).toFixed(0) + ' per t·km · offshore SAR ' + fmtInt(TARIFF.SORTIE.OF) + ' per sortie'],
       ['LOAD FACTOR', pct(r.kg, r.capKg), 'of ' + L560.payloadKg + ' kg on ' + r.legs + ' revenue legs'], ['EMPTY LEGS', pct(r.empty, r.legs), r.empty + ' positioning legs'],
       ['FLIGHT HOURS', fmtInt(r.fh), (r.fh / Math.max(1, n)).toFixed(1) + ' FH per aircraft · ' + n + ' in roster'], ['REVENUE / FLIGHT HOUR', r.fh ? inr(r.rev / r.fh) : '—', r.legs ? inr(r.rev / r.legs) + ' per leg' : ''],
-      ['ON TIME', pct(r.legs - r.late, r.legs), r.late + ' late · ' + r.holds + ' holds'], ['DEPARTURES', fmtInt(r.dep), fmtInt(r.arr) + ' arrivals'], ['STOOD DOWN', r.down, 'airframes to the line hangar today']
+      ['ON TIME', pct(r.legs - r.late, r.legs), r.late + ' late · ' + r.holds + ' holds'], ['DEPARTURES', fmtInt(r.dep), fmtInt(r.arr) + ' arrivals · ' + r.down + ' stood down'],
+      (c => ['CONTRIBUTION', '<span class="' + mcls(r.rev - c.total, 1) + '">' + sgn(r.rev - c.total) + '</span>', pct(r.rev - c.total, r.rev) + ' margin after ' + inr(c.total) + ' direct cost · see ECONOMICS'])(costOf(r, this.airframes(), this.hrsOf(L)))
     ];
     let h = '<div class="ogrid">' + cells.map(c => '<div class="cell"><span class="cap">' + c[0] + '</span><b class="num">' + c[1] + '</b><p>' + c[2] + '</p></div>').join('') + '</div>';
     // dry and wet
     const split = (lab, rev, kg, col) => '<div class="bar"><div class="row"><span>' + lab + ' · ' + tt(kg) + ' t</span><b class="num">' + inr(rev) + ' · ' + pct(rev, r.rev) + '</b></div><div class="meter"><i style="width:' + (r.rev ? rev / r.rev * 100 : 0).toFixed(1) + '%' + (col ? ';background:' + col : '') + '"></i></div></div>';
     h += '<div class="ocols"><div><span class="cap">Revenue by cargo class</span><div style="display:flex;flex-direction:column;gap:9px;margin-top:9px">' +
-      split('Dry · SAR ' + TARIFF.DRY.toFixed(3) + ' per kg·km', r.revDry, r.kgDry) + split('Wet · cold chain and liquid · SAR ' + TARIFF.WET.toFixed(3) + ' per kg·km', r.revWet, r.kgWet, '#78AAFF') + '</div>' +
-      '<p class="src">Billed on delivery: kg × great-circle km between the two sites × tariff. Maintenance ferries and empty legs earn nothing.</p></div>' +
+      split('Dry', r.revDry, r.kgDry) + split('Wet · chilled and liquid', r.revWet, r.kgWet, '#78AAFF') + '</div>' +
+      '<p class="src">Billed on delivery at SAR ' + TARIFF.DRY.toFixed(3) + ' per kg·km for dry and chilled pods alike (kg × great-circle km between the two sites); offshore pays SAR ' + fmtInt(TARIFF.SORTIE.OF) + ' per loaded sortie. Maintenance ferries and empty legs earn nothing.</p></div>' +
       '<div><span class="cap">Revenue by hour · 06:00 to 06:00</span>' + this.chart(L) + '</div></div>';
     // business lines
     const lines = SCENARIOS.filter(s => this.inScope(s.id)).map(s => { const x = L.scn[s.id] || ledRec(), fl = sim.aircraft.filter(a => a.scn === s.id && a.phase !== 'STANDBY').length; return [s, x, fl]; });
     h += '<div><span class="cap">By business line</span><table class="ot"><thead><tr><th>LINE</th><th class="r">AIRCRAFT</th><th class="r">REVENUE</th><th class="r">SHARE</th><th class="r">TONNES</th><th class="r">PODS</th><th class="r">LEGS</th><th class="r">LOAD FACTOR</th><th class="r">FH</th><th class="r">SAR  / FH</th><th class="r">ON TIME</th></tr></thead><tbody>' +
       lines.map(([s, x, fl]) => '<tr><td class="w">' + esc(s.name) + '</td><td class="r">' + fl + '</td><td class="r w">' + inr(x.rev) + '</td><td class="r">' + pct(x.rev, L.tot.rev) + '</td><td class="r">' + tt(x.kg) + '</td><td class="r">' + x.pods + '</td><td class="r">' + x.legs + '</td><td class="r">' + pct(x.kg, x.capKg) + '</td><td class="r">' + fmtInt(x.fh) + '</td><td class="r">' + (x.fh ? inr(x.rev / x.fh) : '—') + '</td><td class="r">' + pct(x.legs - x.late, x.legs) + '</td></tr>').join('') +
       '</tbody></table></div>';
+    return h;
+  }
+
+  /* ---------- economics: the deck's cost basis (A5) applied to what the network flew today ---------- */
+  econ(L) {
+    const sim = this.sim, r = this.dayRec(L), hrs = this.hrsOf(L), full = hrs >= 24, n = this.airframes(), c = costOf(r, n, hrs), p = this.price, rev = revAt(r, p), m = rev - c.total;
+    const fhAc = r.fh / n, load = r.pods ? r.kg / r.pods : 0, cFh = r.fh ? (c.total - c.landing) / r.fh : 0, lPerFh = r.fh ? r.arr / r.fh : 0;
+    const be = (cf, kg) => { const d = p * kg - cf / 220; return d > 0 ? (COST.landing + cf * 0.25) / d : Infinity; };          // leg length at which kg·km revenue covers the sortie
+    const last = sim.days.length ? sim.days[sim.days.length - 1] : null;
+    const perSeg = '<div class="seg">' + (last ? '<button type="button" data-operiod="LAST"' + (L === last ? ' class="on"' : '') + '>DAY ' + (last.day + 1) + ' · FULL DAY</button>' : '') + '<button type="button" data-operiod="TODAY"' + (L === sim.led ? ' class="on"' : '') + '>TODAY SO FAR · ' + this.hrsOf(sim.led).toFixed(1) + ' H</button></div>';
+    const priceSeg = '<div class="seg">' + [[TARIFF.DRY, 'BASE · SAR ' + TARIFF.DRY.toFixed(3)], [TARIFF.CAUTIOUS, 'CAUTIOUS · SAR ' + TARIFF.CAUTIOUS.toFixed(3)]].map(x => '<button type="button" data-oprice="' + x[0] + '"' + (x[0] === p ? ' class="on"' : '') + '>' + x[1] + ' / kg·km</button>').join('') + '</div>';
+    const cell = (a, b, c2) => '<div class="cell"><span class="cap">' + a + '</span><b class="num">' + b + '</b><p>' + c2 + '</p></div>';
+    let h = '<div class="row" style="justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap"><p class="src" style="margin:0;max-width:760px">Direct cost on the basis of the Saudi Brothers deck (A5): SAR ' + COST.deckFh + ' a flight hour at 6 FH a day and SAR ' + COST.landing + ' a landing. Ownership, insurance and the operations centre are fixed per airframe (SAR ' + fmtInt(COST.fixedDay) + ' a day each, spares included), so they fall per hour as utilisation rises. ' + (full ? 'Showing day ' + (L.day + 1) + ', 06:00 to 06:00.' : 'Showing today so far: fixed cost for the ' + hrs.toFixed(1) + ' h elapsed' + (last ? '' : '; the first full day closes at 06:00') + '.') + '</p><div style="display:flex;gap:8px;flex-wrap:wrap">' + perSeg + priceSeg + '</div></div>' +
+      '<div class="ogrid" style="margin-top:12px">' + [
+        cell('REVENUE', inr(rev), p === TARIFF.DRY ? 'base price' : 'at the cautious price'), cell('DIRECT COST', inr(c.total), inr(c.fixed) + ' fixed · ' + inr(c.variable) + ' by hour and landing'),
+        cell('CONTRIBUTION', '<span class="' + mcls(m, 1) + '">' + sgn(m) + '</span>', pct(m, rev) + ' margin before overhead'), cell('COST / FLIGHT HOUR', 'SAR ' + fmtInt(cFh), 'deck ' + COST.deckFh + ' at 6 FH · landings on top'),
+        cell('REVENUE / FLIGHT HOUR', r.fh ? 'SAR ' + fmtInt(rev / r.fh) : '—', fhAc.toFixed(1) + ' FH per airframe ' + (full ? 'in the day' : 'so far')), cell('COST PER KG', r.kg ? 'SAR ' + (c.total / r.kg).toFixed(2) : '—', 'revenue SAR ' + (r.kg ? (rev / r.kg).toFixed(2) : '—') + ' per kg')].join('') + '</div>';
+    // cost elements
+    const rows = ['own', 'ins', 'ops', 'fuel', 'mx', 'pilot', 'satcom', 'landing'];
+    const deckOf = k => k === 'landing' ? COST.landing + ' / landing' : (COST.fixedFh[k] || COST.fh[k]);
+    h += '<div class="ocols"><div><h3 class="osec">Where the cost goes</h3><table class="ot"><thead><tr><th>COST ELEMENT</th><th class="r">DECK SAR / FH</th><th class="r">TODAY</th><th class="r">SAR / FH TODAY</th><th class="r">SHARE</th></tr></thead><tbody>' +
+      rows.map(k => '<tr><td class="w">' + COST.LABEL[k] + (COST.fixedFh[k] ? ' <span class="c-mute">fixed</span>' : '') + '</td><td class="r">' + deckOf(k) + '</td><td class="r">' + inr(c[k]) + '</td><td class="r">' + (r.fh ? fmtInt(c[k] / r.fh) : '—') + '</td><td class="r">' + pct(c[k], c.total) + '</td></tr>').join('') +
+      '<tr class="tot"><td class="w">Total direct cost</td><td class="r">' + COST.deckFh + ' + ' + COST.landing + '</td><td class="r">' + inr(c.total) + '</td><td class="r">' + (r.fh ? fmtInt(c.total / r.fh) : '—') + '</td><td class="r">100%</td></tr></tbody></table>' +
+      '<p class="src">Fixed elements are the deck\'s SAR/FH × 1,800 FH a year, spread over 365 days per airframe. ' + fmtInt(r.arr) + ' landings today, ' + lPerFh.toFixed(2) + ' per flight hour: short legs pay the SAR ' + COST.landing + ' landing charge more often.</p></div>';
+    // twin against the deck basis
+    const dk = { fh: 6, load: COST.deckLoadKg, cFh: COST.deckFh, lpf: 1 / (0.25 + 330 / 220) };
+    const uRow = (a, d, t) => '<tr><td class="w">' + a + '</td><td class="r">' + d + '</td><td class="r w">' + t + '</td></tr>';
+    h += '<div><h3 class="osec">This network against the deck basis</h3><table class="ot"><thead><tr><th></th><th class="r">DECK (A5, A6)</th><th class="r">TWIN TODAY</th></tr></thead><tbody>' +
+      uRow('Flight hours per airframe per day', dk.fh + ' (7 in the 2031 base case)', fhAc.toFixed(1) + (full ? '' : ' so far')) + uRow('Average load per pod', dk.load + ' kg', fmtInt(load) + ' kg · LF ' + pct(r.kg, r.capKg)) +
+      uRow('Cost per flight hour, before landings', 'SAR ' + dk.cFh, 'SAR ' + fmtInt(cFh)) + uRow('Landing charge', 'SAR ' + COST.landing, 'SAR ' + COST.landing + ' × ' + lPerFh.toFixed(2) + ' per FH') +
+      uRow('Price', 'SAR ' + p.toFixed(3) + ' per kg·km', 'SAR ' + p.toFixed(3) + ' · offshore SAR ' + fmtInt(TARIFF.SORTIE.OF) + ' a sortie') +
+      uRow('Break-even leg, kg·km pricing', fmtInt(be(dk.cFh, dk.load)) + ' km', isFinite(be(cFh, load)) ? fmtInt(be(cFh, load)) + ' km' : '—') +
+      uRow('Margin on a 330 km leg (Riyadh – Qassim)', pct(p * dk.load * 330 - deckSortie(330), p * dk.load * 330), pct(p * load * 330 - (COST.landing + cFh * (0.25 + 330 / 220)), p * load * 330)) +
+      '</tbody></table><p class="src">Break-even: the leg at which ' + p.toFixed(3) + ' × load × km pays the landing and ' + '(0.25 h + km ÷ 220 km/h) of flying, the deck\'s own sortie formula. The twin flies more hours on the same fixed cost, which is most of the gap.</p></div></div>';
+    // by line
+    const lines = SCENARIOS.filter(s => this.inScope(s.id)).map(s => { const x = L.scn[s.id] || ledRec(), na = this.airframes(s.id), cx = costOf(x, na, hrs), rx = revAt(x, p); return [s, x, na, cx, rx]; });
+    h += '<h3 class="osec">By business line</h3><table class="ot"><thead><tr><th>LINE</th><th>PRICING</th><th class="r">AIRFRAMES</th><th class="r">FH / AIRFRAME</th><th class="r">REVENUE</th><th class="r">DIRECT COST</th><th class="r">CONTRIBUTION</th><th class="r">MARGIN</th><th class="r">COST / FH</th><th class="r">REVENUE / FH</th><th class="r">COST / LEG</th><th class="r">REVENUE / LEG</th></tr></thead><tbody>' +
+      lines.map(([s, x, na, cx, rx]) => { const mx = rx - cx.total; return '<tr><td class="w">' + esc(s.name) + '</td><td class="c-mute">' + (TARIFF.SORTIE[s.id] ? 'SAR ' + fmtInt(TARIFF.SORTIE[s.id]) + ' / sortie' : 'SAR ' + p.toFixed(3) + ' / kg·km') + '</td><td class="r">' + na + '</td><td class="r">' + (hrs ? (x.fh / na * 24 / hrs).toFixed(1) : '—') + '</td><td class="r">' + inr(rx) + '</td><td class="r">' + inr(cx.total) + '</td><td class="r w' + mcls(mx, 1) + '">' + sgn(mx) + '</td><td class="r' + mcls(mx, 1) + '">' + pct(mx, rx) + '</td><td class="r">' + (x.fh ? fmtInt(cx.total / x.fh) : '—') + '</td><td class="r">' + (x.fh ? fmtInt(rx / x.fh) : '—') + '</td><td class="r">' + (x.legs ? fmtInt(cx.total / x.legs) : '—') + '</td><td class="r">' + (x.legs ? fmtInt(rx / x.legs) : '—') + '</td></tr>'; }).join('') + '</tbody></table>';
+    // the deck's six corridors, deck sortie maths beside what the twin flew
+    const lineFix = {}; for (const s of SCENARIOS) { const x = L.scn[s.id]; lineFix[s.id] = x && x.fh ? COST.fixedDay * this.airframes(s.id) * hrs / 24 / x.fh : 0; }
+    h += '<h3 class="osec">The deck\'s corridors (A6) beside the twin</h3><table class="ot"><thead><tr><th>CORRIDOR</th><th class="r">KM</th><th class="r">DECK COST / SORTIE</th><th class="r">PER KG</th><th class="r">HELICOPTER / KG</th><th class="r">ROAD / SORTIE</th><th class="r">DECK REVENUE / SORTIE</th><th class="r">DECK MARGIN</th><th>TWIN</th><th class="r">LEGS TODAY</th><th class="r">TWIN COST / LEG</th><th class="r">TWIN REVENUE / LEG</th><th class="r">TWIN MARGIN</th></tr></thead><tbody>' +
+      DECK_CORR.filter(d => d[6].some(id => sim.routes[id] && this.inScope(sim.routes[id].scn))).map(d => {
+        const off = d[6][0][0] === 'O', drev = off ? TARIFF.SORTIE.OF : p * COST.deckLoadKg * d[1], dm = drev - d[2];
+        const t = ledRec(); let tc = 0; for (const id of d[6]) { const x = L.route[id]; if (!x) continue; for (const k in t) t[k] += x[k] || 0; tc += x.fh * (COST.varFh + lineFix[sim.routes[id].scn]) + x.arr * COST.landing; }
+        const tr = revAt(t, p), tm = tr - tc;
+        return '<tr><td class="w">' + d[0] + '</td><td class="r">' + d[1] + '</td><td class="r">' + fmtInt(d[2]) + '</td><td class="r">' + d[3].toFixed(1) + '</td><td class="r">' + d[4] + '</td><td class="r">' + (d[5] ? fmtInt(d[5]) : 'no road') + '</td><td class="r">' + fmtInt(drev) + (off ? ' <span class="c-mute">sortie</span>' : '') + '</td><td class="r' + mcls(dm, 1) + '">' + pct(dm, drev) + '</td><td>' + d[6].map(id => '<button type="button" class="lnk" data-oact="route" data-v="' + id + '">' + id + '</button>').join(' ') + '</td><td class="r">' + t.legs + '</td><td class="r">' + (t.legs ? fmtInt(tc / t.legs) : '—') + '</td><td class="r">' + (t.legs ? fmtInt(tr / t.legs) : '—') + '</td><td class="r' + mcls(tm, 1) + '">' + (t.legs ? pct(tm, tr) : '—') + '</td></tr>';
+      }).join('') + '</tbody></table><p class="src">Deck columns are the deck\'s own figures at a 217.5 kg load: cost = SAR 340 + SAR 848 × (0.25 h + km ÷ 220). Deck revenue applies the selected price to the same load; at SAR 0.030 any kg·km leg shorter than about ' + fmtInt(be(COST.deckFh, COST.deckLoadKg)) + ' km loses money on the deck basis, which is why the two short corridors show red there. Offshore would lose too on kg·km pricing (SAR ' + fmtInt(p * COST.deckLoadKg * 90) + ' against SAR 899 at 90 km), so it is priced per sortie, as the deck proposes. Helicopter at SAR 11,000 an hour and road per sortie are the deck\'s estimates.</p>';
+    // where this network sits against the venture plan
+    const yr = v => full ? 'SAR ' + (v * 365 / 1e6).toFixed(0) + 'M' : 'after a full day', P = DECK_PLAN, f1 = v => v < 0 ? '(' + Math.abs(v).toFixed(1) + ')' : v.toFixed(1);
+    h += '<h3 class="osec">The network shown here against the venture plan</h3><div class="ocols"><div><table class="ot"><thead><tr><th></th><th class="r">VENTURE PLAN 2031 (A7, A9)</th><th class="r">THIS TWIN, ONE DAY × 365</th></tr></thead><tbody>' +
+      uRow('Aircraft operated as a service', '20 on 6 corridors', n + ' on ' + Object.values(sim.routes).filter(R => !R.mro && this.inScope(R.scn)).length + ' corridors') +
+      uRow('Defence aircraft sold, with sustainment', '20 in 2031 · 40 over 2028–31', 'not modelled') +
+      uRow('Revenue from the service', 'SAR 40M', yr(rev)) + uRow('Direct cost of the service', '—', yr(c.total)) + uRow('Contribution', '—', yr(m)) +
+      '</tbody></table><p class="src">This twin shows the network at scale, well beyond the 2031 base case. Overhead (SAR 16.1M in 2031), tax and zakat sit above contribution and are not charged here. Venture equity asked: SAR 48M including a 15% buffer.</p></div>' +
+      '<div><table class="ot"><thead><tr><th>VENTURE P&amp;L, SAR M</th>' + P.years.map(y => '<th class="r">' + y + '</th>').join('') + '</tr></thead><tbody>' +
+      [['Military aircraft delivered', P.mil, String], ['Commercial aircraft in service', P.com, String], ['Revenue', P.rev, f1], ['Direct costs', P.direct, f1], ['Overhead', P.overhead, f1], ['EBITDA', P.ebitda, f1], ['Net income', P.net, f1]]
+        .map(x => '<tr' + (x[0] === 'EBITDA' ? ' class="tot"' : '') + '><td class="w">' + x[0] + '</td>' + x[1].map(v => '<td class="r' + (v < 0 ? ' c-hot' : '') + '">' + (v === 0 && x[2] !== String ? '–' : x[2](v)) + '</td>').join('') + '</tr>').join('') +
+      '</tbody></table><p class="src">Base case from the deck, estimated. Cautious case: SAR 0.025 per kg·km, 6 FH a day, 20 military aircraft, SAR 88.6M revenue and SAR 17.5M EBITDA in 2031.</p></div></div>';
     return h;
   }
 
@@ -4426,8 +4530,8 @@ class OpsReport {
   close(L) {
     const sim = this.sim, pick = d => this.scope === 'ALL' ? d.tot : (d.scn[this.scope] || ledRec());
     const days = sim.days.map(d => ({ day: d.day, r: pick(d), done: true })).concat([{ day: L.day, r: this.dayRec(L), done: false }]).reverse();
-    return this.exports() + '<p class="src">Operating days run 06:00 to 06:00 AST, starting with day 1 on 25 Oct 2026; one simulated day is one calendar day, and the shared record is flown forward every hour by the backend, so every viewer opens on today. Every closed day is archived for good in the repository (<a href="' + REC.logs + '" target="_blank" rel="noopener">logs/</a>: one JSON file per day with every leg, plus days.csv). The current day is still open.</p><table class="ot"><thead><tr><th>DAY</th><th class="r">REVENUE</th><th class="r">DRY</th><th class="r">WET</th><th class="r">TONNES</th><th class="r">t·km</th><th class="r">PODS</th><th class="r">LEGS</th><th class="r">EMPTY</th><th class="r">LOAD FACTOR</th><th class="r">FH</th><th class="r">SAR  / FH</th><th class="r">ON TIME</th><th class="r">HOLDS</th></tr></thead><tbody>' +
-      days.map(d => { const r = d.r; return '<tr><td class="w">Day ' + (d.day + 1) + ' · ' + dateOf(6 * 3600 + d.day * 86400) + (d.done ? '' : ' · open') + '</td><td class="r w">' + inr(r.rev) + '</td><td class="r">' + inr(r.revDry) + '</td><td class="r">' + inr(r.revWet) + '</td><td class="r">' + tt(r.kg) + '</td><td class="r">' + fmtInt(r.tkm) + '</td><td class="r">' + r.pods + '</td><td class="r">' + r.legs + '</td><td class="r">' + pct(r.empty, r.legs) + '</td><td class="r">' + pct(r.kg, r.capKg) + '</td><td class="r">' + fmtInt(r.fh) + '</td><td class="r">' + (r.fh ? inr(r.rev / r.fh) : '—') + '</td><td class="r">' + pct(r.legs - r.late, r.legs) + '</td><td class="r">' + r.holds + '</td></tr>'; }).join('') + '</tbody></table>';
+    return this.exports() + '<p class="src">Operating days run 06:00 to 06:00 AST, starting with day 1 on 25 Oct 2026; one simulated day is one calendar day, and the shared record is flown forward every hour by the backend, so every viewer opens on today. Every closed day is archived for good in the repository (<a href="' + REC.logs + '" target="_blank" rel="noopener">logs/</a>: one JSON file per day with every leg, plus days.csv). The current day is still open.</p><table class="ot"><thead><tr><th>DAY</th><th class="r">REVENUE</th><th class="r">DRY</th><th class="r">WET</th><th class="r">TONNES</th><th class="r">t·km</th><th class="r">PODS</th><th class="r">LEGS</th><th class="r">EMPTY</th><th class="r">LOAD FACTOR</th><th class="r">FH</th><th class="r">SAR  / FH</th><th class="r">DIRECT COST</th><th class="r">CONTRIBUTION</th><th class="r">MARGIN</th><th class="r">ON TIME</th><th class="r">HOLDS</th></tr></thead><tbody>' +
+      days.map(d => { const r = d.r, c = costOf(r, this.airframes(), d.done ? 24 : this.hrsOf(L)), m = r.rev - c.total; return '<tr><td class="w">Day ' + (d.day + 1) + ' · ' + dateOf(6 * 3600 + d.day * 86400) + (d.done ? '' : ' · open') + '</td><td class="r w">' + inr(r.rev) + '</td><td class="r">' + inr(r.revDry) + '</td><td class="r">' + inr(r.revWet) + '</td><td class="r">' + tt(r.kg) + '</td><td class="r">' + fmtInt(r.tkm) + '</td><td class="r">' + r.pods + '</td><td class="r">' + r.legs + '</td><td class="r">' + pct(r.empty, r.legs) + '</td><td class="r">' + pct(r.kg, r.capKg) + '</td><td class="r">' + fmtInt(r.fh) + '</td><td class="r">' + (r.fh ? inr(r.rev / r.fh) : '—') + '</td><td class="r">' + inr(c.total) + '</td><td class="r w' + mcls(m, 1) + '">' + sgn(m) + '</td><td class="r' + mcls(m, 1) + '">' + pct(m, r.rev) + '</td><td class="r">' + pct(r.legs - r.late, r.legs) + '</td><td class="r">' + r.holds + '</td></tr>'; }).join('') + '</tbody></table>';
   }
 }
 
