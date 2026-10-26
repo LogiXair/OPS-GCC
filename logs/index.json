@@ -1,1 +1,11 @@
-[]
+[
+ {
+  "day": 1,
+  "date": "2026-10-25",
+  "revenue_sar": 4501166,
+  "direct_cost_sar": 2497073,
+  "tonnes": 886.9,
+  "legs": 3473,
+  "file": "day-001.json"
+ }
+]
