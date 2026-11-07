@@ -106,5 +106,14 @@
   "tonnes": 915.2,
   "legs": 3544,
   "file": "day-012.json"
+ },
+ {
+  "day": 13,
+  "date": "2026-11-06",
+  "revenue_sar": 4343986,
+  "direct_cost_sar": 2463029,
+  "tonnes": 877.9,
+  "legs": 3441,
+  "file": "day-013.json"
  }
 ]
